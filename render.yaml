@@ -1,0 +1,21 @@
+# Deploy 1-clique no Render (https://render.com) usando Docker.
+# Suba esta pasta para um repositório no GitHub e clique em
+# "New +" > "Blueprint" apontando para o repo. O Render lê este arquivo.
+services:
+  - type: web
+    name: romaneio-hub-leitor
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: free
+    healthCheckPath: /health
+    envVars:
+      - key: OCR_ENABLED
+        value: "true"          # liga o OCR (lê frota em PDFs escaneados)
+      - key: MAX_MB
+        value: "50"
+      - key: MAX_PAGES
+        value: "1500"
+      - key: TIMEOUT_SECONDS
+        value: "120"
+      - key: ALLOWED_ORIGINS
+        value: "*"             # troque pelo domínio do seu app em produção
