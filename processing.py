@@ -165,11 +165,12 @@ def _analyze_page(page: "fitz.Page", idx: int, ocr_enabled: bool) -> PageInfo:
 
 import os as _os
 
-# Ajustes de desempenho do OCR (calibráveis por variável de ambiente).
-# OCR pesado é o que trava o plano grátis; por isso lemos só a faixa de cima
-# da página (onde ficam frota/romaneio/motorista/data), num único passe.
-_OCR_TOP_FRACTION = float(_os.getenv("OCR_TOP_FRACTION", "0.62"))  # % da altura, do topo
-_OCR_ZOOM = float(_os.getenv("OCR_ZOOM", "2.0"))                   # resolução do recorte
+# Ajustes de desempenho do OCR — FIXOS no código (rápidos e testados no
+# romaneio real). Lê só a faixa fininha do TOPO, onde ficam a frota e o
+# número do romaneio; cada nota fica quase instantânea.
+# (valores fixos de propósito, para não depender de configuração do servidor)
+_OCR_TOP_FRACTION = 0.10   # 10% do topo = frota + número do romaneio
+_OCR_ZOOM = 2.0            # resolução do recorte (nítido o bastante p/ ler)
 _OCR_CONFIG = _os.getenv("OCR_CONFIG", "--oem 1 --psm 6")          # tesseract rápido
 _OCR_LANG_CACHE = "__unset__"
 
