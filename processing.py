@@ -127,7 +127,10 @@ def _analyze_page(page: "fitz.Page", idx: int, ocr_enabled: bool) -> PageInfo:
     text = re.sub(r"\s+", " ", " ".join(lines)).strip()
     ocr_used = False
 
-    if len(text) < 12 and ocr_enabled:
+    # OCR só nas FRENTES (páginas ímpares 1-based): é onde ficam frota,
+    # romaneio, motorista e data. O verso não precisa de OCR — isso corta o
+    # trabalho pela metade e evita o estouro de tempo no servidor grátis.
+    if len(text) < 12 and ocr_enabled and (idx % 2 == 1):
         ocr_text = _ocr_page(page)
         if ocr_text:
             lines = [l for l in ocr_text.splitlines() if l.strip()]
@@ -160,31 +163,62 @@ def _analyze_page(page: "fitz.Page", idx: int, ocr_enabled: bool) -> PageInfo:
     )
 
 
-def _ocr_page(page: "fitz.Page", langs=("por", "por+eng", "eng")) -> str:
+import os as _os
+
+# Ajustes de desempenho do OCR (calibráveis por variável de ambiente).
+# OCR pesado é o que trava o plano grátis; por isso lemos só a faixa de cima
+# da página (onde ficam frota/romaneio/motorista/data), num único passe.
+_OCR_TOP_FRACTION = float(_os.getenv("OCR_TOP_FRACTION", "0.62"))  # % da altura, do topo
+_OCR_ZOOM = float(_os.getenv("OCR_ZOOM", "2.0"))                   # resolução do recorte
+_OCR_CONFIG = _os.getenv("OCR_CONFIG", "--oem 1 --psm 6")          # tesseract rápido
+_OCR_LANG_CACHE = "__unset__"
+
+
+def _ocr_lang() -> Optional[str]:
+    """Descobre UMA vez o melhor idioma instalado (por > eng > padrão)."""
+    global _OCR_LANG_CACHE
+    if _OCR_LANG_CACHE == "__unset__":
+        lang = None
+        try:
+            import pytesseract  # noqa
+            avail = set(pytesseract.get_languages(config=""))
+            if "por" in avail:
+                lang = "por"
+            elif "eng" in avail:
+                lang = "eng"
+        except Exception:
+            lang = None
+        _OCR_LANG_CACHE = lang
+    return _OCR_LANG_CACHE
+
+
+def _ocr_page(page: "fitz.Page") -> str:
     """
-    OCR opcional no servidor (só roda se pytesseract + tesseract existirem).
-    Tenta português; se o idioma não estiver instalado, cai para inglês e,
-    por fim, para o idioma padrão do tesseract — nunca quebra o processamento.
+    OCR rápido: rasteriza APENAS a faixa superior da página e roda o tesseract
+    num único passe (idioma detectado uma vez, configuração rápida). Mantém o
+    custo de CPU baixo o suficiente para o servidor grátis responder a tempo.
     """
     try:
         import pytesseract  # noqa
         from PIL import Image  # noqa
         import io
-        pix = page.get_pixmap(matrix=fitz.Matrix(2, 2))
+        r = page.rect
+        frac = min(max(_OCR_TOP_FRACTION, 0.2), 1.0)
+        clip = fitz.Rect(r.x0, r.y0, r.x1, r.y0 + r.height * frac)
+        pix = page.get_pixmap(matrix=fitz.Matrix(_OCR_ZOOM, _OCR_ZOOM), clip=clip)
         img = Image.open(io.BytesIO(pix.tobytes("png")))
     except Exception:
         return ""
-    for lang in langs:
-        try:
-            t = pytesseract.image_to_string(img, lang=lang)
-            if t and t.strip():
-                return t
-        except Exception:
-            continue
+    lang = _ocr_lang()
     try:
-        return pytesseract.image_to_string(img)  # idioma padrão
+        if lang:
+            return pytesseract.image_to_string(img, lang=lang, config=_OCR_CONFIG) or ""
+        return pytesseract.image_to_string(img, config=_OCR_CONFIG) or ""
     except Exception:
-        return ""
+        try:
+            return pytesseract.image_to_string(img) or ""
+        except Exception:
+            return ""
 
 
 # ------------------------------------------------------------------ detecção
